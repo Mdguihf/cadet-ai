@@ -61,10 +61,10 @@ def login(code):
 def save_diag(cid,answers):
     scores={i:0 for i in range(1,5)}; mistakes=[]
     for t in DIAG:
-        ok=answers.get(t['id'])==t['answer']; scores[t['component']]+=int(ok)
+        ok=answers.get(t['id'])==t['options'][t['answer']]; scores[t['component']]+=int(ok)
         if not ok: mistakes.append(t['id'])
     c=db(); cur=c.execute("INSERT INTO diagnostics(cadet_id,created_at,total,scores_json,mistakes_json) VALUES(?,?,?,?,?)",(cid,now(),sum(scores.values()),json.dumps(scores),json.dumps(mistakes))); did=cur.lastrowid
-    for t in DIAG: c.execute("INSERT INTO diagnostic_answers(diagnostic_id,task_id,selected,correct) VALUES(?,?,?,?)",(did,t['id'],str(answers.get(t['id'])),int(answers.get(t['id'])==t['answer'])))
+    for t in DIAG: c.execute("INSERT INTO diagnostic_answers(diagnostic_id,task_id,selected,correct) VALUES(?,?,?,?)",(did,t['id'],str(answers.get(t['id'])),int(answers.get(t['id'])==t['options'][t['answer']])))
     c.commit(); c.close(); return scores,mistakes
 
 def latest_diag(cid):
