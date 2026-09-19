@@ -107,19 +107,30 @@ def ai_client():
 
     return OpenAI(api_key=api_key)
 
-def ai_call(system,user):
-    cl=ai_client()
-    if not cl: return None
+def ai_call(system, user):
+    cl = ai_client()
+    if not cl:
+        return None
+
     model = os.getenv("OPENAI_MODEL", "").strip()
 
-if not model:
-    try:
-        model = str(st.secrets.get("OPENAI_MODEL", "gpt-4o-mini")).strip()
-    except Exception:
-        model = "gpt-4o-mini"
-    try: return cl.responses.create(model=model,input=[{'role':'system','content':system},{'role':'user','content':user}]).output_text.strip()
-    except Exception: return None
+    if not model:
+        try:
+            model = str(st.secrets.get("OPENAI_MODEL", "gpt-4o-mini")).strip()
+        except Exception:
+            model = "gpt-4o-mini"
 
+    try:
+        response = cl.responses.create(
+            model=model,
+            input=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user}
+            ]
+        )
+        return response.output_text.strip()
+    except Exception:
+        return None
 def plan_for(cid):
     d=latest_diag(cid)
     if not d: return []
