@@ -3,18 +3,6 @@ from datetime import datetime
 from pathlib import Path
 import streamlit as st
 
-# Load local .env automatically when running Cadet AI on a personal computer.
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent / ".env")
-except ImportError:
-    pass
-
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
-
 st.set_page_config(page_title="Cadet AI 4.0", page_icon="🧠", layout="wide")
 BASE=Path(__file__).resolve().parent; DATA=BASE/"data"; DB=DATA/"cadets.db"
 COMPONENTS={1:"Обнаружение фактов, аргументов, гипотез и опровержений",2:"Анализ и критика аргументов",3:"Оценка противоречий и альтернатив",4:"Формулировка вывода"}
@@ -93,44 +81,65 @@ def attempts(cid):
 def sessions(cid):
     c=db(); r=c.execute("SELECT * FROM training_sessions WHERE cadet_id=? ORDER BY id DESC",(cid,)).fetchall(); c.close(); return r
 
-def ai_client():
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+def offline_explain(t, selected):
+    """Объяснение ошибки без внешнего API."""
+    correct = t['options'][t['answer']]
+    skill = t.get('skill', '')
+    explanation = t.get('explanation', '')
+    prompts = {
+        'Поиск альтернативного объяснения': 'Какие ещё причины могли привести к такому результату? Какие данные отличили бы эти версии?',
+        'Многофакторное объяснение': 'Какие факторы могли действовать одновременно? Что произойдёт, если убрать один из них?',
+        'Разведение причин и следствий': 'Что здесь наблюдается, а что именно объявляется причиной? Достаточно ли данных для такого вывода?',
+        'Оценка альтернативного объяснения': 'Какая из версий лучше объясняет все приведённые факты? Какие данные помогли бы сравнить версии?',
+        'Критика недостаточного основания': 'Каких данных не хватает, чтобы вывод стал надёжнее?',
+        'Оценка силы критики': 'Отвечает ли возражение непосредственно на исходный тезис и меняет ли оно его обоснованность?',
+        'Оценка причинного аргумента': 'Есть ли здесь только совпадение во времени или действительно приведены основания для причинного вывода?',
+        'Определение границ вывода': 'Не шире ли вывод, чем позволяют приведённые факты?',
+        'Осторожный причинный вывод': 'Можно ли из этих данных говорить о возможности причины, или уже утверждается доказанная причина?',
+    }
+    q = prompts.get(skill, 'Какая часть условия подтверждает выбранный ответ? Какой факт мог бы опровергнуть твой вывод?')
+    return (
+        f"**Где ошибка:** выбран вариант «{selected}», а правильный вариант — «{correct}».\n\n"
+        f"**Почему:** {explanation}\n\n"
+        f"**Самопроверка:** {q}\n\n"
+        "**Микро-совет:** сначала отдели факты от предположений, затем проверь, действительно ли доводы поддерживают вывод."
+    )
 
-    if not api_key:
-        try:
-            api_key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()
-        except Exception:
-            api_key = ""
+def offline_chat(message, cid):
+    """Сократический наставник на локальных правилах и истории попыток."""
+    msg = message.lower().strip()
+    plan = plan_for(cid)
+    hist = attempts(cid)
+    weak = []
+    for r in hist:
+        if not r['correct'] and r['skill'] not in weak:
+            weak.append(r['skill'])
+    focus = [p['skill'] for p in plan]
+    if any(w in msg for w in ('ошиб', 'неправ', 'почему', 'где')):
+        if weak:
+            return (f"Давай разберём спокойно. В последних попытках встречались ошибки по навыку **{weak[0]}**. "
+                    "Назови свой вывод в одном предложении. Затем спроси себя: какие факты его подтверждают и какое альтернативное объяснение возможно?")
+        return "Давай начнём с основания вывода: какой факт в условии ты считаешь главным и почему он действительно поддерживает твой ответ?"
+    if any(w in msg for w in ('альтернатив', 'друг', 'причин')):
+        return "Попробуй построить минимум две версии объяснения. Для каждой укажи один факт, который её поддерживает, и один факт, который мог бы её ослабить."
+    if any(w in msg for w in ('аргумент', 'довод', 'доказ')):
+        return "Проверь аргумент по цепочке: тезис → довод → связь между ними. Спроси себя: если довод верен, следует ли из него тезис?"
+    if any(w in msg for w in ('факт', 'гипотез', 'мнение')):
+        return "Раздели утверждения на факт, аргумент, гипотезу или мнение. Для гипотезы отдельно сформулируй, какие данные могли бы её подтвердить или опровергнуть."
+    if any(w in msg for w in ('манипуля', 'фейк', 'достовер')):
+        return "Не спеши принимать сообщение на веру. Проверь источник, отдели проверяемые факты от оценок и поищи независимое подтверждение."
+    if focus:
+        return f"Сейчас в твоём индивидуальном плане есть навык **{focus[0]}**. Попробуй ответить: какие данные здесь являются фактами, а какие уже интерпретацией?"
+    return "Сформулируй свой вывод. Затем назови два основания в его пользу и одну альтернативную версию объяснения. Я помогу проверить ход рассуждения."
 
-    if not api_key:
-        return None
+def offline_new_task(t, cid):
+    """Подбирает дополнительное задание из локальной базы по тому же навыку."""
+    used = {r['task_id'] for r in attempts(cid)}
+    same = [x for x in TASKS if x.get('skill') == t.get('skill') and x.get('id') != t.get('id') and x.get('id') not in used]
+    if not same:
+        same = [x for x in TASKS if x.get('skill') == t.get('skill') and x.get('id') != t.get('id')]
+    return random.choice(same) if same else None
 
-    return OpenAI(api_key=api_key)
-
-def ai_call(system, user):
-    cl = ai_client()
-    if not cl:
-        return None
-
-    model = os.getenv("OPENAI_MODEL", "").strip()
-
-    if not model:
-        try:
-            model = str(st.secrets.get("OPENAI_MODEL", "gpt-4o-mini")).strip()
-        except Exception:
-            model = "gpt-4o-mini"
-
-    try:
-        response = cl.responses.create(
-            model=model,
-            input=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user}
-            ]
-        )
-        return response.output_text.strip()
-    except Exception as e:
-        return f"ОШИБКА AI: {e}"
 def plan_for(cid):
     d=latest_diag(cid)
     if not d: return []
@@ -166,22 +175,6 @@ def choose_tasks(cid,n=8):
         if t['id'] not in used: chosen.append(t); used.add(t['id'])
         if len(chosen)>=n: break
     return chosen
-
-def ai_explain(t,selected):
-    system='Ты образовательный наставник по критическому мышлению. Не оценивай личность и не ставь диагнозов. Объясни логику конкретного задания кратко.'
-    user=f"Задание: {t['question']}\nВарианты: {t['options']}\nОтвет кадета: {selected}\nПравильный вариант: {t['options'][t['answer']]}\nДай 4 пункта: где ошибка; почему верный ответ сильнее; вопрос для самопроверки; микро-совет."
-    return ai_call(system,user)
-
-def ai_new_task(t,selected):
-    system='Создай новое учебное задание по критическому мышлению на тот же навык, но в другой ситуации. Верни только JSON с полями title,question,options,answer,explanation,component,skill. 4 варианта, answer 0-3.'
-    user=f"Навык: {t['skill']}\nКомпонент: {COMPONENTS[t['component']]}\nИсходное задание: {t['question']}\nОтвет кадета: {selected}"
-    raw=ai_call(system,user)
-    if not raw: return None
-    try:
-        raw=raw.replace('```json','').replace('```','').strip(); x=json.loads(raw)
-        if len(x.get('options',[]))!=4 or not 0<=int(x.get('answer',-1))<4: return None
-        x['component']=int(x.get('component',t['component'])); x['skill']=x.get('skill',t['skill']); return x
-    except Exception: return None
 
 def current_chat(cid):
     c=db(); r=c.execute("SELECT user_message,ai_message FROM ai_dialogues WHERE cadet_id=? ORDER BY id DESC LIMIT 12",(cid,)).fetchall(); c.close(); return list(reversed(r))
@@ -293,15 +286,15 @@ elif st.session_state.page=='train':
             correct=ans==t['options'][t['answer']]
             x={'task_id':t['id'],'title':t['title'],'component':t['component'],'skill':t['skill'],'correct':correct,'selected':ans,'correct_answer':t['options'][t['answer']],'explanation':t['explanation']}
             if not correct:
-                x['ai_explanation']=ai_explain(t,ans)
-                nt=ai_new_task(t,ans)
+                x['ai_explanation']=offline_explain(t,ans)
+                nt=offline_new_task(t,st.session_state.cadet_id)
                 if nt:
                     c=db(); c.execute('INSERT INTO ai_tasks(cadet_id,created_at,source_task_id,task_json) VALUES(?,?,?,?)',(st.session_state.cadet_id,now(),t['id'],json.dumps(nt,ensure_ascii=False))); c.commit(); c.close(); x['ai_task']=nt
             st.session_state.details.append(x); st.session_state.ti+=1; st.rerun()
 
 elif st.session_state.page=='coach':
     st.header('AI-наставник')
-    if not ai_client(): st.warning('AI не подключён. Добавьте OPENAI_API_KEY и при необходимости OPENAI_MODEL в окружение.')
+    st.info('Автономный режим: работает без OpenAI API, ключей и оплаты. Наставник использует правила критического мышления, ваш план и историю попыток.')
     for m in st.session_state.chat:
         with st.chat_message(m['role']): st.write(m['content'])
     msg=st.chat_input('Например: помоги понять, где я поспешил с выводом')
@@ -309,7 +302,7 @@ elif st.session_state.page=='coach':
         st.session_state.chat.append({'role':'user','content':msg})
         plan=plan_for(st.session_state.cadet_id); hist=attempts(st.session_state.cadet_id)
         context=f"Индивидуальный план: {plan}\nПоследние попытки: {[dict(x) for x in hist[:12]]}"
-        answer=ai_call('Ты персональный образовательный наставник по критическому мышлению кадет. Используй сократические вопросы. Не ставь диагнозов и не оценивай личность. Помогай проверять основания, альтернативы и границы выводов.',context+'\nСообщение кадета: '+msg) or 'AI пока недоступен. Проверьте подключение API.'
+        answer=offline_chat(msg, st.session_state.cadet_id)
         st.session_state.chat.append({'role':'assistant','content':answer}); c=db(); c.execute('INSERT INTO ai_dialogues(cadet_id,created_at,user_message,ai_message) VALUES(?,?,?,?)',(st.session_state.cadet_id,now(),msg,answer)); c.commit(); c.close(); st.rerun()
 
 elif st.session_state.page=='history':
@@ -330,4 +323,4 @@ elif st.session_state.page=='teacher':
     st.download_button('Скачать CSV обезличенной статистики',csv_export(),'cadet_ai_progress.csv','text/csv')
     st.caption('В экспорт не включаются имена кадетов; используется код кадета. Перед реальным внедрением настройте хранение и доступ с учётом требований вашей организации.')
 
-st.divider(); st.caption('Cadet AI 4.0 · диагностика фиксирована; индивидуальный маршрут строится по навыкам и истории попыток. AI используется для обучения, объяснений и генерации дополнительных задач, а не для изменения диагностического результата.')
+st.divider(); st.caption('Cadet AI 5.0 · автономный режим без OpenAI API. Диагностика фиксирована; индивидуальный маршрут строится по навыкам и истории попыток. Наставник используется для обучения и объяснений, а дополнительные задания берутся из локальной тренировочной базы и не изменяют диагностический результат.')
