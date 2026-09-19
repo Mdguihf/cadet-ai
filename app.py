@@ -110,7 +110,13 @@ def ai_client():
 def ai_call(system,user):
     cl=ai_client()
     if not cl: return None
-    model=os.getenv('OPENAI_MODEL','gpt-5.6-luna')
+    model = os.getenv("OPENAI_MODEL", "").strip()
+
+if not model:
+    try:
+        model = str(st.secrets.get("OPENAI_MODEL", "gpt-4o-mini")).strip()
+    except Exception:
+        model = "gpt-4o-mini"
     try: return cl.responses.create(model=model,input=[{'role':'system','content':system},{'role':'user','content':user}]).output_text.strip()
     except Exception: return None
 
