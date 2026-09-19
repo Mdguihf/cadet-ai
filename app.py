@@ -129,8 +129,8 @@ def ai_call(system, user):
             ]
         )
         return response.output_text.strip()
-    except Exception:
-        return None
+   except Exception as e:
+    return f"ОШИБКА AI: {e}"
 def plan_for(cid):
     d=latest_diag(cid)
     if not d: return []
