@@ -94,8 +94,18 @@ def sessions(cid):
     c=db(); r=c.execute("SELECT * FROM training_sessions WHERE cadet_id=? ORDER BY id DESC",(cid,)).fetchall(); c.close(); return r
 
 def ai_client():
-    if OpenAI is None or not os.getenv('OPENAI_API_KEY','').strip(): return None
-    return OpenAI(api_key=os.getenv('OPENAI_API_KEY').strip())
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    if not api_key:
+        try:
+            api_key = str(st.secrets.get("OPENAI_API_KEY", "")).strip()
+        except Exception:
+            api_key = ""
+
+    if not api_key:
+        return None
+
+    return OpenAI(api_key=api_key)
 
 def ai_call(system,user):
     cl=ai_client()
