@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 import streamlit as st
 
-st.set_page_config(page_title="«Интеллектуальная система персонализированной диагностики и развития критического мышления кадет»", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Интеллектуальная система персонализированной диагностики и развития критического мышления кадет", page_icon="🧠", layout="wide")
 BASE=Path(__file__).resolve().parent; DATA=BASE/"data"; DB=DATA/"cadets.db"
 COMPONENTS={1:"Обнаружение фактов, аргументов, гипотез и опровержений",2:"Анализ и критика аргументов",3:"Оценка противоречий и альтернатив",4:"Формулировка вывода"}
 SKILLS={
@@ -187,7 +187,7 @@ def go(p): st.session_state.page=p; st.rerun()
 for k,v in {'page':'home','cadet_id':None,'diag_answers':{},'training':[],'ti':0,'details':[],'finished':False,'chat':[]}.items(): st.session_state.setdefault(k,v)
 
 with st.sidebar:
-    st.title('🧠 Cadet AI 4.0')
+    st.title('🧠 Интеллектуальная система персонализированной диагностики и развития критического мышления кадет')
     if st.session_state.cadet_id:
         c=get_cadet(st.session_state.cadet_id); st.success(f"{c['name']}\n\nКод: **{c['code']}**")
         for label,p in [('Диагностика','diag'),('Моя карта навыков','map'),('Индивидуальный план','plan'),('Тренировка','train'),('AI-наставник','coach'),('История','history'),('Педагог / исследователь','teacher')]:
@@ -195,7 +195,7 @@ with st.sidebar:
         if st.button('Выйти',use_container_width=True): st.session_state.cadet_id=None; go('home')
     else: st.info('Войдите по коду или создайте кабинет.')
 
-st.title('🧠 Cadet AI 4.0')
+st.title('🧠 Интеллектуальная система персонализированной диагностики и развития критического мышления кадет')
 st.caption('Фиксированная диагностика → индивидуальная карта навыков → персональный план → адаптивная тренировка → AI-наставник')
 
 if st.session_state.page=='home':
@@ -320,7 +320,7 @@ elif st.session_state.page=='teacher':
     st.subheader('Сводка по навыкам')
     c=db(); rows=c.execute('SELECT skill,COUNT(*) n,AVG(correct)*100 acc FROM task_attempts GROUP BY skill ORDER BY acc').fetchall(); c.close()
     for r in rows: st.write(f"**{r['skill']}** — {r['n']} попыток, точность {r['acc']:.1f}%")
-    st.download_button('Скачать CSV обезличенной статистики',csv_export(),'cadet_ai_progress.csv','text/csv')
+    st.download_button('Скачать CSV обезличенной статистики',csv_export(),'critical_thinking_progress.csv','text/csv')
     st.caption('В экспорт не включаются имена кадетов; используется код кадета. Перед реальным внедрением настройте хранение и доступ с учётом требований вашей организации.')
 
-st.divider(); st.caption('«Интеллектуальная система персонализированной диагностики и развития критического мышления кадет» · автономный режим без OpenAI API. Диагностика фиксирована; индивидуальный маршрут строится по навыкам и истории попыток. Наставник используется для обучения и объяснений, а дополнительные задания берутся из локальной тренировочной базы и не изменяют диагностический результат.')
+st.divider(); st.caption('Интеллектуальная система персонализированной диагностики и развития критического мышления кадет · автономный режим без OpenAI API. Диагностика фиксирована; индивидуальный маршрут строится по навыкам и истории попыток. Наставник используется для обучения и объяснений, а дополнительные задания берутся из локальной тренировочной базы и не изменяют диагностический результат.')
